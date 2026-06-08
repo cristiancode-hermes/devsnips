@@ -1,0 +1,6 @@
+{
+  "name": "devsnips-netlify-functions",
+  "dependencies": {
+    "@neondatabase/serverless": "^0.9.0"
+  }
+}

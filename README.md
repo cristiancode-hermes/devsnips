@@ -1,59 +1,73 @@
-# Devsnips
+# DevSnips 🔧
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 22.0.0.
+> Gestor personal de snippets de código. Angular + Tailwind + Neon Data API + Neon Auth + Netlify.
 
-## Development server
+## Stack
 
-To start a local development server, run:
+| Capa | Tecnología |
+|------|-----------|
+| Frontend | Angular 22, Tailwind CSS, SCSS |
+| Base de datos | Neon PostgreSQL (serverless) |
+| API | Netlify Functions + Neon Data API |
+| Auth | Neon Auth (JWT) |
+| Deploy | Netlify |
 
-```bash
-ng serve
-```
+## Requisitos
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+- Node.js 18+
+- Angular CLI (`npm install -g @angular/cli`)
+- Una cuenta en [Neon](https://neon.tech)
+- Una cuenta en [Netlify](https://netlify.com)
 
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
-
-```bash
-ng generate component component-name
-```
-
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
-
-```bash
-ng generate --help
-```
-
-## Building
-
-To build the project run:
+## Setup Local
 
 ```bash
-ng build
+# Clonar
+git clone https://github.com/cristiancode-hermes/devsnips.git
+cd devsnips
+
+# Instalar dependencias
+npm install
+
+# Configurar variables de entorno
+cp .env.example .env
+# Editar .env con tus credenciales de Neon
+
+# Iniciar servidor de desarrollo
+npm start
 ```
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
+## Variables de Entorno (Netlify)
 
-## Running unit tests
+| Variable | Descripción |
+|----------|-------------|
+| `DATABASE_URL` | Connection string de Neon PostgreSQL |
 
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
+## Base de Datos
+
+Ejecutar `schema.sql` en el SQL Editor de Neon para crear las tablas.
 
 ```bash
-ng test
+# O desde CLI si tienes psql:
+psql "$DATABASE_URL" -f schema.sql
 ```
 
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
+## Deploy
 
 ```bash
-ng e2e
+# Instalar Netlify CLI
+npm install -g netlify-cli
+
+# Login y deploy
+netlify login
+netlify deploy --prod
 ```
 
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
+## Funcionalidades
 
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+- ✅ Guardar snippets con título, código, lenguaje y tags
+- ✅ Ver y buscar snippets
+- ✅ Editar y eliminar snippets
+- ✅ Autenticación con Google/GitHub (Neon Auth)
+- ✅ Diseño responsive modo oscuro
+- ✅ Código con resaltado de sintaxis (próximamente)
