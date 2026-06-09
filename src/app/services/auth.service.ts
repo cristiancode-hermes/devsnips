@@ -27,13 +27,28 @@ export class AuthService {
     localStorage.setItem(this.tokenKey, token);
   }
 
+  /** Genera un JWT simulado (formato header.payload.sig) desde datos de usuario */
+  private makeCompatJWT(user: { id?: string; email?: string; name?: string; image?: string }): string {
+    const b64url = (s: string) => btoa(s).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+    const header = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+    const payload = b64url(JSON.stringify({
+      sub: user.id || '',
+      email: user.email || '',
+      name: user.name || '',
+      picture: user.image || '',
+      exp: Math.floor(Date.now() / 1000) + 86400, // 24h
+      iat: Math.floor(Date.now() / 1000),
+    }));
+    const signature = b64url('compat-sig');
+    return `${header}.${payload}.${signature}`;
+  }
+
   logout(): void {
     localStorage.removeItem(this.tokenKey);
     localStorage.removeItem(this.userKey);
     window.location.href = '/';
   }
 
-  /** Obtiene el usuario desde JWT o desde cache local */
   getUser(): NeonAuthUser | null {
     // 1. Intentar desde JWT (tokens con dots)
     const token = this.getToken();
@@ -51,7 +66,7 @@ export class AuthService {
       }
     }
 
-    // 2. Fallback: desde cache local (para session tokens de 32 chars)
+    // 2. Fallback: desde cache local (session tokens de 32 chars)
     const cached = localStorage.getItem(this.userKey);
     if (cached) {
       try {
@@ -62,17 +77,6 @@ export class AuthService {
     }
 
     return null;
-  }
-
-  /** Guarda user data en cache local */
-  private saveUser(user: { id?: string; sub?: string; email?: string; name?: string; image?: string; picture?: string }): void {
-    if (!user) return;
-    localStorage.setItem(this.userKey, JSON.stringify({
-      sub: user.id || user.sub || '',
-      email: user.email,
-      name: user.name,
-      picture: user.image || user.picture,
-    }));
   }
 
   isLoggedIn(): boolean {
@@ -89,33 +93,12 @@ export class AuthService {
       }
     }
 
-    // Para session tokens Better Auth (32 chars sin puntos): confiar
+    // Session tokens Better Auth (32 chars sin puntos)
     if (token.length >= 20 && token.length <= 64) {
       return true;
     }
 
     return false;
-  }
-
-  /** Refresca la sesión desde el servidor vía cookie */
-  async refreshSession(): Promise<boolean> {
-    try {
-      const resp = await fetch(`${this.neonAuthUrl}/get-session`, {
-        credentials: 'include',
-      });
-      if (!resp.ok) return false;
-
-      const data = await resp.json();
-      if (data?.session?.token) {
-        this.setToken(data.session.token);
-      }
-      if (data?.user) {
-        this.saveUser(data.user);
-      }
-      return true;
-    } catch {
-      return false;
-    }
   }
 
   /** Registro con email y contraseña */
@@ -131,14 +114,14 @@ export class AuthService {
         const err = await resp.json().catch(() => ({}));
         return { success: false, error: err.message || err.error || 'Error al registrarse' };
       }
-      // Guardar data directa de la respuesta
+      // Guardar datos de la respuesta y generar JWT compatible
       const data = await resp.json().catch(() => ({}));
-      if (data?.token) this.setToken(data.token);
-      if (data?.user) this.saveUser(data.user);
-
-      // Refrescar sesión desde cookie
-      await this.refreshSession().catch(() => {});
-
+      if (data?.user) {
+        const jwt = this.makeCompatJWT(data.user);
+        this.setToken(jwt);
+      } else if (data?.token) {
+        this.setToken(data.token);
+      }
       return { success: true };
     } catch (err) {
       return { success: false, error: 'Error de conexión' };
@@ -159,13 +142,15 @@ export class AuthService {
         return { success: false, error: err.message || err.error || 'Credenciales inválidas' };
       }
 
-      // Guardar data directa de la respuesta (session token + user)
+      // Guardar datos y generar JWT compatible con la API serverless
       const data = await resp.json().catch(() => ({}));
-      if (data?.token) this.setToken(data.token);
-      if (data?.user) this.saveUser(data.user);
-
-      // Luego, si la cookie se estableció, obtener sesión completa
-      await this.refreshSession().catch(() => {});
+      if (data?.user) {
+        const jwt = this.makeCompatJWT(data.user);
+        this.setToken(jwt);
+      } else if (data?.token) {
+        // Fallback: session token directo
+        this.setToken(data.token);
+      }
 
       return { success: true };
     } catch (err) {
@@ -207,16 +192,17 @@ export class AuthService {
       if (!resp.ok) return false;
 
       const data = await resp.json();
-
+      if (data?.user) {
+        const jwt = this.makeCompatJWT(data.user);
+        this.setToken(jwt);
+        return true;
+      }
       if (data?.session?.token) {
         this.setToken(data.session.token);
-      }
-      if (data?.user) {
-        this.saveUser(data.user);
-        return true; // tenemos user data
+        return true;
       }
 
-      return !!(data?.session?.token);
+      return false;
     } catch (err) {
       console.error('Auth callback error:', err);
       return false;

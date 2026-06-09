@@ -214,7 +214,10 @@ describe('AuthService', () => {
     it('obtiene sesión y guarda el token', async () => {
       const result = await service.handleAuthCallback();
       expect(result).toBe(true);
-      expect(service.getToken()).toBe('session-token-123');
+      const token = service.getToken();
+      expect(token).not.toBeNull();
+      expect(token!.includes('.')).toBe(true); // debe ser formato JWT
+      expect(token!.split('.')).toHaveLength(3);
     });
   });
 
