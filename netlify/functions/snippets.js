@@ -8,7 +8,7 @@ const DATABASE_URL = process.env.DATABASE_URL;
  * For JWT: decodes payload and extracts sub.
  * For session tokens: validates via Neon Auth get-session endpoint.
  */
-async function getUserFromToken(authHeader) {
+async function getUserFromToken(authHeader, sql) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return null;
   }
@@ -27,19 +27,16 @@ async function getUserFromToken(authHeader) {
   }
 
   // Try as Better Auth session token (32-char, no dots)
-  // Validate by calling Neon Auth get-session endpoint
+  // Query the session table directly from the database
   try {
-    // NEON_AUTH_URL from env, with fallback to the configured Neon Auth URL
-    const NEON_AUTH_URL = process.env.NEON_AUTH_URL || 'https://ep-old-star-abhpdbpp.neonauth.eu-west-2.aws.neon.tech/neondb/auth';
-    if (!NEON_AUTH_URL) return null;
-
-    const resp = await fetch(`${NEON_AUTH_URL}/get-session`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!resp.ok) return null;
-
-    const data = await resp.json();
-    return data?.user?.id || data?.session?.userId || null;
+    if (!sql) return null;
+    const sessions = await sql`
+      SELECT "userId" FROM session WHERE token = ${token} AND "expiresAt" > NOW()
+    `;
+    if (sessions && sessions.length > 0) {
+      return sessions[0].userId;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -58,16 +55,6 @@ exports.handler = async (event) => {
     return { statusCode: 204, headers, body: '' };
   }
 
-  // Auth check
-  const userId = await getUserFromToken(event.headers.authorization || '');
-  if (!userId) {
-    return {
-      statusCode: 401,
-      headers,
-      body: JSON.stringify({ error: 'Unauthorized' }),
-    };
-  }
-
   if (!DATABASE_URL) {
     return {
       statusCode: 500,
@@ -77,6 +64,17 @@ exports.handler = async (event) => {
   }
 
   const sql = neon(DATABASE_URL);
+
+  // Auth check
+  const userId = await getUserFromToken(event.headers.authorization || '', sql);
+  if (!userId) {
+    return {
+      statusCode: 401,
+      headers,
+      body: JSON.stringify({ error: 'Unauthorized' }),
+    };
+  }
+
   const pathParts = event.path.replace(/^\/api\/snippets\/?/, '').split('/');
   const snippetId = pathParts[0] || null;
 
