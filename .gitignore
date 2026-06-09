@@ -47,6 +47,7 @@ Thumbs.db
 # Secrets
 .neon-api-key
 .neon-db-pass
+.netlify-token
 
 # Local helper scripts
 neon.sh
