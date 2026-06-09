@@ -115,6 +115,44 @@ describe('AuthService', () => {
       expect(service.getToken()).toBeNull();
       expect(localStorage.getItem('devsnips_token')).toBeNull();
     });
+
+    it('removes cached user data on logout', () => {
+      localStorage.setItem('devsnips_user', JSON.stringify({ sub: 'abc', name: 'Test' }));
+      service.setToken('some_token');
+      service.logout();
+      expect(localStorage.getItem('devsnips_user')).toBeNull();
+    });
+  });
+
+  describe('isLoggedIn with session token', () => {
+    it('returns true for 32-char session token (Better Auth style)', () => {
+      const sessionToken = 'abcdefghijklmnopqrstuvwxyz123456';
+      expect(sessionToken.length).toBe(32);
+      service.setToken(sessionToken);
+      expect(service.isLoggedIn()).toBe(true);
+    });
+
+    it('returns false for very short tokens', () => {
+      service.setToken('short');
+      expect(service.isLoggedIn()).toBe(false);
+    });
+  });
+
+  describe('getUser with cached user', () => {
+    it('returns user from cache when token is not a JWT', () => {
+      const cachedUser = { sub: 'user_abc', email: 'cached@test.com', name: 'Cached' };
+      localStorage.setItem('devsnips_user', JSON.stringify(cachedUser));
+      service.setToken('session_token_32_chars_long_xxx');
+      const user = service.getUser();
+      expect(user).not.toBeNull();
+      expect(user!.sub).toBe('user_abc');
+      expect(user!.email).toBe('cached@test.com');
+      expect(user!.name).toBe('Cached');
+    });
+
+    it('returns null when no token and no cache', () => {
+      expect(service.getUser()).toBeNull();
+    });
   });
 
   describe('loginWithGoogle', () => {

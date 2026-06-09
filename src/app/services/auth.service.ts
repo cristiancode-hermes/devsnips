@@ -16,6 +16,7 @@ export interface AuthResult {
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly tokenKey = 'devsnips_token';
+  private readonly userKey = 'devsnips_user';
   private readonly neonAuthUrl = environment.neonAuthUrl;
 
   getToken(): string | null {
@@ -28,31 +29,90 @@ export class AuthService {
 
   logout(): void {
     localStorage.removeItem(this.tokenKey);
+    localStorage.removeItem(this.userKey);
     window.location.href = '/';
   }
 
+  /** Obtiene el usuario desde JWT o desde cache local */
   getUser(): NeonAuthUser | null {
+    // 1. Intentar desde JWT (tokens con dots)
     const token = this.getToken();
-    if (!token) return null;
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      return {
-        sub: payload.sub,
-        email: payload.email,
-        name: payload.name,
-        picture: payload.picture,
-      };
-    } catch {
-      return null;
+    if (token && token.includes('.')) {
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        return {
+          sub: payload.sub,
+          email: payload.email,
+          name: payload.name,
+          picture: payload.picture,
+        };
+      } catch {
+        // fallthrough
+      }
     }
+
+    // 2. Fallback: desde cache local (para session tokens de 32 chars)
+    const cached = localStorage.getItem(this.userKey);
+    if (cached) {
+      try {
+        return JSON.parse(cached) as NeonAuthUser;
+      } catch {
+        // ignore
+      }
+    }
+
+    return null;
+  }
+
+  /** Guarda user data en cache local */
+  private saveUser(user: { id?: string; sub?: string; email?: string; name?: string; image?: string; picture?: string }): void {
+    if (!user) return;
+    localStorage.setItem(this.userKey, JSON.stringify({
+      sub: user.id || user.sub || '',
+      email: user.email,
+      name: user.name,
+      picture: user.image || user.picture,
+    }));
   }
 
   isLoggedIn(): boolean {
     const token = this.getToken();
     if (!token) return false;
+
+    // Si es JWT (tiene puntos), verificar exp
+    if (token.includes('.')) {
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        return payload.exp > Math.floor(Date.now() / 1000);
+      } catch {
+        return false;
+      }
+    }
+
+    // Para session tokens Better Auth (32 chars sin puntos): confiar
+    if (token.length >= 20 && token.length <= 64) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /** Refresca la sesión desde el servidor vía cookie */
+  async refreshSession(): Promise<boolean> {
     try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      return payload.exp > Math.floor(Date.now() / 1000);
+      const resp = await fetch(`${this.neonAuthUrl}/get-session`, {
+        credentials: 'include',
+      });
+      if (!resp.ok) return false;
+
+      const data = await resp.json();
+      if (data?.session?.token) {
+        this.setToken(data.session.token);
+      }
+      if (data?.user) {
+        this.saveUser(data.user);
+      }
+      return true;
     } catch {
       return false;
     }
@@ -65,22 +125,20 @@ export class AuthService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password }),
+        credentials: 'include',
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
         return { success: false, error: err.message || err.error || 'Error al registrarse' };
       }
-      const data = await resp.json();
-      // Algunas configuraciones devuelven token directo
-      if (data?.token) {
-        this.setToken(data.token);
-        return { success: true };
-      }
-      // Si no hay token directo, intentar obtener sesión
-      if (data?.session?.token) {
-        this.setToken(data.session.token);
-        return { success: true };
-      }
+      // Guardar data directa de la respuesta
+      const data = await resp.json().catch(() => ({}));
+      if (data?.token) this.setToken(data.token);
+      if (data?.user) this.saveUser(data.user);
+
+      // Refrescar sesión desde cookie
+      await this.refreshSession().catch(() => {});
+
       return { success: true };
     } catch (err) {
       return { success: false, error: 'Error de conexión' };
@@ -100,18 +158,16 @@ export class AuthService {
         const err = await resp.json().catch(() => ({}));
         return { success: false, error: err.message || err.error || 'Credenciales inválidas' };
       }
-      const data = await resp.json();
-      if (data?.token) {
-        this.setToken(data.token);
-        return { success: true };
-      }
-      if (data?.session?.token) {
-        this.setToken(data.session.token);
-        return { success: true };
-      }
-      // Sin token directo, obtenerlo via get-session
-      const session = await this.handleAuthCallback();
-      return { success: session };
+
+      // Guardar data directa de la respuesta (session token + user)
+      const data = await resp.json().catch(() => ({}));
+      if (data?.token) this.setToken(data.token);
+      if (data?.user) this.saveUser(data.user);
+
+      // Luego, si la cookie se estableció, obtener sesión completa
+      await this.refreshSession().catch(() => {});
+
+      return { success: true };
     } catch (err) {
       return { success: false, error: 'Error de conexión' };
     }
@@ -142,48 +198,25 @@ export class AuthService {
     }
   }
 
-  /** Procesa el callback OAuth usando fetch con cookies de sesión */
+  /** Procesa el callback OAuth / sesión usando fetch con cookies */
   async handleAuthCallback(): Promise<boolean> {
     try {
-      // Better Auth establece cookie de sesión durante el OAuth
       const resp = await fetch(`${this.neonAuthUrl}/get-session`, {
         credentials: 'include',
       });
       if (!resp.ok) return false;
 
       const data = await resp.json();
+
       if (data?.session?.token) {
         this.setToken(data.session.token);
-        return true;
       }
-
-      // Si no hay token en la sesión, intentar obtener JWT
-      const jwtResp = await fetch(`${this.neonAuthUrl}/token/jwt`, {
-        credentials: 'include',
-      });
-      if (jwtResp.ok) {
-        const jwtData = await jwtResp.json();
-        if (jwtData?.token) {
-          this.setToken(jwtData.token);
-          return true;
-        }
-      }
-
-      // Último recurso: construir token desde user data
       if (data?.user) {
-        const user = data.user;
-        const minimalToken = btoa(JSON.stringify({
-          sub: user.id,
-          email: user.email,
-          name: user.name,
-          picture: user.image,
-          exp: Math.floor(Date.now() / 1000) + 3600,
-        }));
-        this.setToken(minimalToken);
-        return true;
+        this.saveUser(data.user);
+        return true; // tenemos user data
       }
 
-      return false;
+      return !!(data?.session?.token);
     } catch (err) {
       console.error('Auth callback error:', err);
       return false;

@@ -15,6 +15,7 @@ describe('HomeComponent', () => {
       loginWithEmail: () => Promise.resolve({ success: false, error: '' }),
       register: () => Promise.resolve({ success: false, error: '' }),
       handleAuthCallback: () => Promise.resolve(false),
+      refreshSession: () => Promise.resolve(false),
       logout: () => {},
       getToken: () => isLoggedIn ? 'mock_token' : null,
       setToken: () => {},
