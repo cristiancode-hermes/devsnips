@@ -4,19 +4,42 @@ const DATABASE_URL = process.env.DATABASE_URL;
 
 /**
  * Verify JWT and extract user_id (sub claim).
- * In production, verify the JWT signature using a Neon Auth public key.
- * For now, we decode and trust the token (Neon Auth issues short-lived JWTs).
+ * Supports both JWT tokens and Better Auth session tokens (32-char).
+ * For JWT: decodes payload and extracts sub.
+ * For session tokens: validates via Neon Auth get-session endpoint.
  */
-function getUserFromToken(authHeader) {
+async function getUserFromToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return null;
   }
   const token = authHeader.slice(7);
+
+  // Try JWT format (header.payload.signature)
+  if (token.includes('.')) {
+    try {
+      const payload = JSON.parse(
+        Buffer.from(token.split('.')[1], 'base64url').toString()
+      );
+      if (payload.sub) return payload.sub;
+    } catch {
+      // Not a valid JWT, try as session token
+    }
+  }
+
+  // Try as Better Auth session token (32-char, no dots)
+  // Validate by calling Neon Auth get-session endpoint
   try {
-    const payload = JSON.parse(
-      Buffer.from(token.split('.')[1], 'base64url').toString()
-    );
-    return payload.sub || null;
+    // NEON_AUTH_URL from env, with fallback to the configured Neon Auth URL
+    const NEON_AUTH_URL = process.env.NEON_AUTH_URL || 'https://ep-old-star-abhpdbpp.neonauth.eu-west-2.aws.neon.tech/neondb/auth';
+    if (!NEON_AUTH_URL) return null;
+
+    const resp = await fetch(`${NEON_AUTH_URL}/get-session`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!resp.ok) return null;
+
+    const data = await resp.json();
+    return data?.user?.id || data?.session?.userId || null;
   } catch {
     return null;
   }
@@ -36,7 +59,7 @@ exports.handler = async (event) => {
   }
 
   // Auth check
-  const userId = getUserFromToken(event.headers.authorization || '');
+  const userId = await getUserFromToken(event.headers.authorization || '');
   if (!userId) {
     return {
       statusCode: 401,
