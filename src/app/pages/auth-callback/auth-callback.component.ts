@@ -22,15 +22,23 @@ export class AuthCallbackComponent implements OnInit {
     private router: Router
   ) {}
 
-  ngOnInit() {
-    this.route.queryParams.subscribe(params => {
+  async ngOnInit() {
+    // Primero intentar query params (token directo del OAuth)
+    this.route.queryParams.subscribe(async params => {
       const token = params['token'] || params['access_token'];
       if (token) {
         this.auth.setToken(token);
         this.router.navigate(['/dashboard']);
-      } else {
-        this.router.navigate(['/']);
+        return;
       }
     });
+
+    // Si no hay token en URL, intentar con sesión (cookies)
+    const success = await this.auth.handleAuthCallback();
+    if (success) {
+      this.router.navigate(['/dashboard']);
+    } else {
+      this.router.navigate(['/']);
+    }
   }
 }
