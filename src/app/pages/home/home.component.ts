@@ -1,10 +1,11 @@
 import { Component } from '@angular/core';
 import { AuthService } from '../../services/auth.service';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 
 @Component({
   selector: 'app-home',
   standalone: true,
+  imports: [RouterLink],
   template: `
     <div class="min-h-screen flex flex-col items-center justify-center px-4">
       <div class="text-center max-w-2xl">
@@ -17,10 +18,14 @@ import { Router } from '@angular/router';
 
         <div class="flex justify-center gap-4">
           @if (!auth.isLoggedIn()) {
-            <button (click)="auth.login()"
-                    class="bg-neon-600 hover:bg-neon-500 text-white px-8 py-3 rounded-xl text-lg font-semibold transition-all shadow-lg shadow-neon-600/20">
+            <a routerLink="/login"
+               class="bg-neon-600 hover:bg-neon-500 text-white px-8 py-3 rounded-xl text-lg font-semibold transition-all shadow-lg shadow-neon-600/20">
               Iniciar sesión
-            </button>
+            </a>
+            <a routerLink="/register"
+               class="bg-dark-800 hover:bg-dark-700 text-white border border-dark-600 px-8 py-3 rounded-xl text-lg font-semibold transition-all">
+              Crear cuenta
+            </a>
           } @else {
             <button (click)="router.navigate(['/dashboard'])"
                     class="bg-neon-600 hover:bg-neon-500 text-white px-8 py-3 rounded-xl text-lg font-semibold transition-all">

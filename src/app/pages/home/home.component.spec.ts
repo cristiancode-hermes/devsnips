@@ -11,7 +11,10 @@ describe('HomeComponent', () => {
     return {
       isLoggedIn: () => isLoggedIn,
       getUser: () => isLoggedIn ? { sub: 'user_1', email: 'test@test.com', name: 'Test' } : null,
-      login: () => {},
+      loginWithGoogle: () => {},
+      loginWithEmail: () => Promise.resolve({ success: false, error: '' }),
+      register: () => Promise.resolve({ success: false, error: '' }),
+      handleAuthCallback: () => Promise.resolve(false),
       logout: () => {},
       getToken: () => isLoggedIn ? 'mock_token' : null,
       setToken: () => {},

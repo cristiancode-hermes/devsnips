@@ -117,7 +117,7 @@ describe('AuthService', () => {
     });
   });
 
-  describe('login', () => {
+  describe('loginWithGoogle', () => {
     const neonAuthUrl = 'https://ep-old-star-abhpdbpp.neonauth.eu-west-2.aws.neon.tech/neondb/auth';
 
     beforeEach(() => {
@@ -145,7 +145,7 @@ describe('AuthService', () => {
     });
 
     it('hace POST a /sign-in/social y redirige a Google', async () => {
-      await service.login();
+      await service.loginWithGoogle();
       expect(window.location.href).toContain('accounts.google.com');
     });
   });
