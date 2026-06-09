@@ -56,6 +56,8 @@ check-db.sh
 drop-auth-role.sh
 enable-api.py
 setup-data-api.py
+deploy-netlify.py
+scripts/
 
 # Generated build artifacts
 _db-config.js
