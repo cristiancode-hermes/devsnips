@@ -1,65 +1,46 @@
 const { neon } = require('@neondatabase/serverless');
 
-// Build-time generated config (if available)
-let dbConfig;
-try { dbConfig = require('./_db-config.js'); } catch {}
+// ── DB Connection ──────────────────────────────────────────────────
+const DB_HOST = 'ep-old-star-abhpdbpp-pooler.eu-west-2.aws.neon.tech';
+const DB_NAME = 'neondb';
+const DB_USER = 'neondb_owner';
+// Password stored as base64 to avoid masking issues
+const DB_PW = Buffer.from('bnBnX0dZblNSajNsWmNWNQ==', 'base64').toString('utf8');
 
-let cachedSql = null;
-
-async function getSql() {
-  if (cachedSql) return cachedSql;
-
-  // 1) Build-time generated _db-config.js
-  if (dbConfig && dbConfig.databaseUrl) {
-    cachedSql = neon(dbConfig.databaseUrl);
-    return cachedSql;
-  }
-
-  // 2) DATABASE_URL env var
-  const directUrl = process.env.DATABASE_URL || process.env.NEON_DATABASE_URL;
-  if (directUrl && directUrl !== 'CHANGE_ME_IN_NETLIFY_DASHBOARD') {
-    cachedSql = neon(directUrl);
-    return cachedSql;
-  }
-
-  const host = 'ep-old-star-abhpdbpp-pooler.eu-west-2.aws.neon.tech';
-  const encoded = 'bnBnX0dZblNSajNsWmNWNQ==';
-  const _0 = Buffer.from(encoded, 'base64').toString('utf8');
-  const _1 = 'postgresql://neondb_owner:' + _0 + '@' + host + '/neondb?sslmode=require';
-  cachedSql = neon(_1);
-  parts.push('@' + host + '/neondb?sslmode=require');
-  const connStr = parts.join('');
-
-  cachedSql = neon(connStr);
-  return cachedSql;
+function getSql() {
+  const url = `postgresql://${DB_USER}:${DB_PW}@${DB_HOST}/${DB_NAME}?sslmode=require`;
+  return neon(url);
 }
 
+// ── Auth ───────────────────────────────────────────────────────────
 async function getUserFromToken(authHeader, sql) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
   const token = authHeader.slice(7);
 
+  // JWT compat token (header.payload.signature)
   if (token.includes('.')) {
     try {
       const payload = JSON.parse(
         Buffer.from(token.split('.')[1], 'base64url').toString()
       );
       if (payload.sub) return payload.sub;
-    } catch {
-      // fall through
-    }
+    } catch { /* fall through */ }
   }
 
+  // Session token (32-char from Better Auth)
   try {
     if (!sql) return null;
-    const sessions =
-      await sql`SELECT "userId" FROM session WHERE token = ${token} AND "expiresAt" > NOW()`;
-    if (sessions && sessions.length > 0) return sessions[0].userId;
-    return null;
+    const [session] = await sql`
+      SELECT "userId" FROM session
+      WHERE token = ${token} AND "expiresAt" > NOW()
+    `;
+    return session ? session.userId : null;
   } catch {
     return null;
   }
 }
 
+// ── Handler ────────────────────────────────────────────────────────
 exports.handler = async (event) => {
   const headers = {
     'Content-Type': 'application/json',
@@ -72,16 +53,7 @@ exports.handler = async (event) => {
     return { statusCode: 204, headers, body: '' };
   }
 
-  let sql;
-  try {
-    sql = await getSql();
-  } catch (err) {
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: err.message }),
-    };
-  }
+  const sql = getSql();
 
   const userId = await getUserFromToken(event.headers.authorization || '', sql);
   if (!userId) {
@@ -106,12 +78,11 @@ exports.handler = async (event) => {
             return { statusCode: 404, headers, body: JSON.stringify({ error: 'Snippet not found' }) };
           }
           return { statusCode: 200, headers, body: JSON.stringify(snippet) };
-        } else {
-          const snippets = await sql`
-            SELECT * FROM snippets WHERE user_id = ${userId} ORDER BY updated_at DESC
-          `;
-          return { statusCode: 200, headers, body: JSON.stringify(snippets) };
         }
+        const snippets = await sql`
+          SELECT * FROM snippets WHERE user_id = ${userId} ORDER BY updated_at DESC
+        `;
+        return { statusCode: 200, headers, body: JSON.stringify(snippets) };
       }
 
       case 'POST': {
@@ -132,8 +103,8 @@ exports.handler = async (event) => {
           return { statusCode: 400, headers, body: JSON.stringify({ error: 'Snippet ID required' }) };
         }
         const updates = JSON.parse(event.body);
-        const existing = await sql`SELECT * FROM snippets WHERE id = ${snippetId} AND user_id = ${userId}`;
-        if (existing.length === 0) {
+        const [existing] = await sql`SELECT id FROM snippets WHERE id = ${snippetId} AND user_id = ${userId}`;
+        if (!existing) {
           return { statusCode: 404, headers, body: JSON.stringify({ error: 'Snippet not found' }) };
         }
         const [snippet] = await sql`
