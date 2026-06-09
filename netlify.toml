@@ -3,6 +3,9 @@
   publish = "dist/devsnips/browser"
   functions = "netlify/functions"
 
+[build.environment]
+  DATABASE_URL = "postgresql://neondb_owner:npg_GYnSRj3lZcV5@ep-old-star-abhpdbpp.eu-west-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
