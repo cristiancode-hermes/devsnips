@@ -56,7 +56,7 @@ export class AuthService {
   /** Redirect a Neon Auth login */
   login(): void {
     const redirectUri = `${window.location.origin}/auth/callback`;
-    const authUrl = `https://${environment.neonProjectId}.${environment.neonDbBranch}.neon.tech/neon-auth/login?redirect_to=${encodeURIComponent(redirectUri)}`;
+    const authUrl = `${environment.neonAuthUrl}/login?redirect_to=${encodeURIComponent(redirectUri)}`;
     window.location.href = authUrl;
   }
 }
