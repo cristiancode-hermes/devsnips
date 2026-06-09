@@ -58,7 +58,7 @@ enable-api.py
 setup-data-api.py
 
 # Generated build artifacts
-db-config.js
+_db-config.js
 .venv/
 
 
