@@ -43,3 +43,22 @@ __screenshots__/
 .DS_Store
 Thumbs.db
 .neon
+
+# Secrets
+.neon-api-key
+.neon-db-pass
+
+# Local helper scripts
+neon.sh
+neon-cmd.sh
+check-db.sh
+drop-auth-role.sh
+enable-api.py
+setup-data-api.py
+
+# Python venv
+.venv/
+
+
+# Local Netlify folder
+.netlify
