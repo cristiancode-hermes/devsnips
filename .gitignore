@@ -57,7 +57,8 @@ drop-auth-role.sh
 enable-api.py
 setup-data-api.py
 
-# Python venv
+# Generated build artifacts
+db-config.js
 .venv/
 
 

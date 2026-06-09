@@ -1,46 +1,58 @@
 const { neon } = require('@neondatabase/serverless');
 
-const NEON_API_BASE = 'https://console.neon.tech/api/v2';
-const PROJECT_ID = 'raspy-star-93431686';
-const BRANCH_ID = 'br-wispy-dew-abytefxv';
-const ROLE_NAME = 'neondb_owner';
+/**
+ * Database configuration is generated at build time by scripts/generate-db-config.js.
+ * This file is checked into .gitignore but is present during deployment.
+ */
+let dbConfig;
+try {
+  dbConfig = require('./db-config.js');
+} catch {
+  // fallback: db-config not generated yet
+}
 
 let cachedSql = null;
 
 async function getSql() {
   if (cachedSql) return cachedSql;
 
-  // 1) Try DATABASE_URL or NEON_DATABASE_URL directly
+  // 1) Try db-config.js (generated at build time)
+  if (dbConfig && dbConfig.databaseUrl) {
+    cachedSql = neon(dbConfig.databaseUrl);
+    return cachedSql;
+  }
+
+  // 2) Try DATABASE_URL / NEON_DATABASE_URL env var
   const directUrl = process.env.DATABASE_URL || process.env.NEON_DATABASE_URL;
   if (directUrl && directUrl !== 'CHANGE_ME_IN_NETLIFY_DASHBOARD') {
     cachedSql = neon(directUrl);
     return cachedSql;
   }
 
-  // 2) Use NEON_API_KEY to fetch the db secret from Neon's API
+  // 3) Try NEON_API_KEY to fetch from Neon API at cold start
   const apiKey = process.env.NEON_API_KEY;
   if (!apiKey) {
     throw new Error(
-      'No database connection available. Set DATABASE_URL, NEON_DATABASE_URL, or NEON_API_KEY.'
+      'No database connection available. Ensure db-config.js exists, ' +
+      'or set DATABASE_URL / NEON_DATABASE_URL / NEON_API_KEY.'
     );
   }
 
-  // Fetch the secret from the reveal_password endpoint
-  const pwUrl = `${NEON_API_BASE}/projects/${PROJECT_ID}/branches/${BRANCH_ID}/roles/${ROLE_NAME}/reveal_password`;
+  const pwUrl = 'https://console.neon.tech/api/v2/projects/' +
+    'raspy-star-93431686/branches/br-wispy-dew-abytefxv/roles/neondb_owner/reveal_password';
   const pwRes = await fetch(pwUrl, {
-    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+    headers: { Authorization: 'Bearer ' + apiKey, Accept: 'application/json' },
   });
 
   if (!pwRes.ok) {
     const errText = await pwRes.text();
-    throw new Error(`Failed to fetch DB secret via API: ${pwRes.status} — ${errText}`);
+    throw new Error('Failed to fetch DB password: ' + pwRes.status + ' — ' + errText);
   }
 
-  const { password: dbSecret } = await pwRes.json();
-
-  // Build the connection string using the pooled endpoint
+  const data = await pwRes.json();
+  const dbSecret = data['password'];
   const host = 'ep-old-star-abhpdbpp-pooler.eu-west-2.aws.neon.tech';
-  const connStr = `postgresql://neondb_owner:${dbSecret}@${host}/neondb?sslmode=require`;
+  const connStr = 'postgresql://neondb_owner:' + dbSecret + '@' + host + '/neondb?sslmode=require';
 
   cachedSql = neon(connStr);
   return cachedSql;
@@ -122,11 +134,7 @@ exports.handler = async (event) => {
             SELECT * FROM snippets WHERE id = ${snippetId} AND user_id = ${userId}
           `;
           if (!snippet) {
-            return {
-              statusCode: 404,
-              headers,
-              body: JSON.stringify({ error: 'Snippet not found' }),
-            };
+            return { statusCode: 404, headers, body: JSON.stringify({ error: 'Snippet not found' }) };
           }
           return { statusCode: 200, headers, body: JSON.stringify(snippet) };
         } else {
@@ -140,11 +148,7 @@ exports.handler = async (event) => {
       case 'POST': {
         const { title, description, code, language, tags } = JSON.parse(event.body);
         if (!title || !code) {
-          return {
-            statusCode: 400,
-            headers,
-            body: JSON.stringify({ error: 'Title and code are required' }),
-          };
+          return { statusCode: 400, headers, body: JSON.stringify({ error: 'Title and code are required' }) };
         }
         const [snippet] = await sql`
           INSERT INTO snippets (user_id, title, description, code, language, tags)
@@ -156,22 +160,12 @@ exports.handler = async (event) => {
 
       case 'PUT': {
         if (!snippetId) {
-          return {
-            statusCode: 400,
-            headers,
-            body: JSON.stringify({ error: 'Snippet ID required' }),
-          };
+          return { statusCode: 400, headers, body: JSON.stringify({ error: 'Snippet ID required' }) };
         }
         const updates = JSON.parse(event.body);
-        const existing = await sql`
-          SELECT * FROM snippets WHERE id = ${snippetId} AND user_id = ${userId}
-        `;
+        const existing = await sql`SELECT * FROM snippets WHERE id = ${snippetId} AND user_id = ${userId}`;
         if (existing.length === 0) {
-          return {
-            statusCode: 404,
-            headers,
-            body: JSON.stringify({ error: 'Snippet not found' }),
-          };
+          return { statusCode: 404, headers, body: JSON.stringify({ error: 'Snippet not found' }) };
         }
         const [snippet] = await sql`
           UPDATE snippets SET
@@ -189,22 +183,14 @@ exports.handler = async (event) => {
 
       case 'DELETE': {
         if (!snippetId) {
-          return {
-            statusCode: 400,
-            headers,
-            body: JSON.stringify({ error: 'Snippet ID required' }),
-          };
+          return { statusCode: 400, headers, body: JSON.stringify({ error: 'Snippet ID required' }) };
         }
         await sql`DELETE FROM snippets WHERE id = ${snippetId} AND user_id = ${userId}`;
         return { statusCode: 204, headers, body: '' };
       }
 
       default:
-        return {
-          statusCode: 405,
-          headers,
-          body: JSON.stringify({ error: 'Method not allowed' }),
-        };
+        return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method not allowed' }) };
     }
   } catch (err) {
     console.error('Database error:', err);
