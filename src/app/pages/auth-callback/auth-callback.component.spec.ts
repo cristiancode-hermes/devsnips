@@ -118,7 +118,14 @@ describe('AuthCallbackComponent', () => {
       authService = TestBed.inject(AuthService);
       router = TestBed.inject(Router);
       vi.spyOn(router, 'navigate').mockImplementation(() => Promise.resolve(true));
+      // Mock fetch para que handleAuthCallback no falle
+      globalThis.fetch = async () => ({ ok: false, json: async () => ({}) }) as Response;
       fixture.detectChanges();
+    });
+
+    afterEach(() => {
+      // @ts-ignore
+      delete globalThis.fetch;
     });
 
     it('does not store any token', () => {

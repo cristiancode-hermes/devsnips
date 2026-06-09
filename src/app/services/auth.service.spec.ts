@@ -118,19 +118,65 @@ describe('AuthService', () => {
   });
 
   describe('login', () => {
+    const neonAuthUrl = 'https://ep-old-star-abhpdbpp.neonauth.eu-west-2.aws.neon.tech/neondb/auth';
+
     beforeEach(() => {
       // Mock window.location
       Object.defineProperty(window, 'location', {
         value: { origin: 'https://devsnips.test', href: '' },
         writable: true,
       });
+      // Mock fetch para el POST a sign-in/social
+      globalThis.fetch = async (url: RequestInfo | URL, init?: RequestInit) => {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            url: 'https://accounts.google.com/o/oauth2/auth?client_id=test',
+            redirect: true,
+          }),
+        } as Response;
+      };
     });
 
-    it('redirects to Neon Auth login URL', () => {
-      service.login();
-      const expectedUrl =
-        'https://ep-old-star-abhpdbpp.neonauth.eu-west-2.aws.neon.tech/neondb/auth/login?redirect_to=https%3A%2F%2Fdevsnips.test%2Fauth%2Fcallback';
-      expect(window.location.href).toBe(expectedUrl);
+    afterEach(() => {
+      // @ts-ignore
+      delete globalThis.fetch;
+    });
+
+    it('hace POST a /sign-in/social y redirige a Google', async () => {
+      await service.login();
+      expect(window.location.href).toContain('accounts.google.com');
+    });
+  });
+
+  describe('handleAuthCallback', () => {
+    beforeEach(() => {
+      globalThis.fetch = async (url: RequestInfo | URL) => {
+        const urlStr = url.toString();
+        if (urlStr.includes('/get-session')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              session: { token: 'session-token-123' },
+              user: { id: 'user_abc', email: 'test@example.com', name: 'Test' },
+            }),
+          } as Response;
+        }
+        return { ok: false, status: 404, json: async () => ({}) } as Response;
+      };
+    });
+
+    afterEach(() => {
+      // @ts-ignore
+      delete globalThis.fetch;
+    });
+
+    it('obtiene sesión y guarda el token', async () => {
+      const result = await service.handleAuthCallback();
+      expect(result).toBe(true);
+      expect(service.getToken()).toBe('session-token-123');
     });
   });
 
