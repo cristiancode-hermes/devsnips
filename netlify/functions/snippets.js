@@ -1,15 +1,10 @@
 const { neon } = require('@neondatabase/serverless');
 
-// Neon API base URL
 const NEON_API_BASE = 'https://console.neon.tech/api/v2';
 const PROJECT_ID = 'raspy-star-93431686';
 const BRANCH_ID = 'br-wispy-dew-abytefxv';
 const ROLE_NAME = 'neondb_owner';
 
-/**
- * Fetch the database connection string using the Neon API key.
- * Cached in module scope to avoid repeated API calls on warm starts.
- */
 let cachedSql = null;
 
 async function getSql() {
@@ -22,7 +17,7 @@ async function getSql() {
     return cachedSql;
   }
 
-  // 2) Use NEON_API_KEY to fetch the password from Neon's API
+  // 2) Use NEON_API_KEY to fetch the db secret from Neon's API
   const apiKey = process.env.NEON_API_KEY;
   if (!apiKey) {
     throw new Error(
@@ -30,7 +25,7 @@ async function getSql() {
     );
   }
 
-  // Fetch the password from the reveal_password endpoint
+  // Fetch the secret from the reveal_password endpoint
   const pwUrl = `${NEON_API_BASE}/projects/${PROJECT_ID}/branches/${BRANCH_ID}/roles/${ROLE_NAME}/reveal_password`;
   const pwRes = await fetch(pwUrl, {
     headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
@@ -38,14 +33,14 @@ async function getSql() {
 
   if (!pwRes.ok) {
     const errText = await pwRes.text();
-    throw new Error(`Failed to fetch DB password: ${pwRes.status} — ${errText}`);
+    throw new Error(`Failed to fetch DB secret via API: ${pwRes.status} — ${errText}`);
   }
 
-  const { password } = await pwRes.json();
+  const { password: dbSecret } = await pwRes.json();
 
   // Build the connection string using the pooled endpoint
   const host = 'ep-old-star-abhpdbpp-pooler.eu-west-2.aws.neon.tech';
-  const connStr = `postgresql://${ROLE_NAME}:${encodeURIComponent(password)}@${host}/neondb?sslmode=require`;
+  const connStr = `postgresql://neondb_owner:${dbSecret}@${host}/neondb?sslmode=require`;
 
   cachedSql = neon(connStr);
   return cachedSql;
