@@ -1,20 +1,65 @@
 const { neon } = require('@neondatabase/serverless');
 
-const DATABASE_URL = process.env.DATABASE_URL;
+// Neon API base URL
+const NEON_API_BASE = 'https://console.neon.tech/api/v2';
+const PROJECT_ID = 'raspy-star-93431686';
+const BRANCH_ID = 'br-wispy-dew-abytefxv';
+const ROLE_NAME = 'neondb_owner';
 
 /**
- * Verify JWT and extract user_id (sub claim).
- * Supports both JWT tokens and Better Auth session tokens (32-char).
- * For JWT: decodes payload and extracts sub.
- * For session tokens: validates via Neon Auth get-session endpoint.
+ * Fetch the database connection string using the Neon API key.
+ * Cached in module scope to avoid repeated API calls on warm starts.
+ */
+let cachedSql = null;
+
+async function getSql() {
+  if (cachedSql) return cachedSql;
+
+  // 1) Try DATABASE_URL or NEON_DATABASE_URL directly
+  const directUrl = process.env.DATABASE_URL || process.env.NEON_DATABASE_URL;
+  if (directUrl && directUrl !== 'CHANGE_ME_IN_NETLIFY_DASHBOARD') {
+    cachedSql = neon(directUrl);
+    return cachedSql;
+  }
+
+  // 2) Use NEON_API_KEY to fetch the password from Neon's API
+  const apiKey = process.env.NEON_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      'No database connection available. Set DATABASE_URL, NEON_DATABASE_URL, or NEON_API_KEY.'
+    );
+  }
+
+  // Fetch the password from the reveal_password endpoint
+  const pwUrl = `${NEON_API_BASE}/projects/${PROJECT_ID}/branches/${BRANCH_ID}/roles/${ROLE_NAME}/reveal_password`;
+  const pwRes = await fetch(pwUrl, {
+    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+  });
+
+  if (!pwRes.ok) {
+    const errText = await pwRes.text();
+    throw new Error(`Failed to fetch DB password: ${pwRes.status} — ${errText}`);
+  }
+
+  const { password } = await pwRes.json();
+
+  // Build the connection string using the pooled endpoint
+  const host = 'ep-old-star-abhpdbpp-pooler.eu-west-2.aws.neon.tech';
+  const connStr = `postgresql://${ROLE_NAME}:${encodeURIComponent(password)}@${host}/neondb?sslmode=require`;
+
+  cachedSql = neon(connStr);
+  return cachedSql;
+}
+
+/**
+ * Verify JWT (header.payload.signature) or Better Auth session token via DB lookup.
+ * Returns userId (string) or null.
  */
 async function getUserFromToken(authHeader, sql) {
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return null;
-  }
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
   const token = authHeader.slice(7);
 
-  // Try JWT format (header.payload.signature)
+  // JWT format
   if (token.includes('.')) {
     try {
       const payload = JSON.parse(
@@ -22,20 +67,16 @@ async function getUserFromToken(authHeader, sql) {
       );
       if (payload.sub) return payload.sub;
     } catch {
-      // Not a valid JWT, try as session token
+      // fall through
     }
   }
 
-  // Try as Better Auth session token (32-char, no dots)
-  // Query the session table directly from the database
+  // Better Auth session token — query the session table
   try {
     if (!sql) return null;
-    const sessions = await sql`
-      SELECT "userId" FROM session WHERE token = ${token} AND "expiresAt" > NOW()
-    `;
-    if (sessions && sessions.length > 0) {
-      return sessions[0].userId;
-    }
+    const sessions =
+      await sql`SELECT "userId" FROM session WHERE token = ${token} AND "expiresAt" > NOW()`;
+    if (sessions && sessions.length > 0) return sessions[0].userId;
     return null;
   } catch {
     return null;
@@ -43,7 +84,6 @@ async function getUserFromToken(authHeader, sql) {
 }
 
 exports.handler = async (event) => {
-  // CORS headers
   const headers = {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
@@ -55,15 +95,16 @@ exports.handler = async (event) => {
     return { statusCode: 204, headers, body: '' };
   }
 
-  if (!DATABASE_URL) {
+  let sql;
+  try {
+    sql = await getSql();
+  } catch (err) {
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ error: 'Database not configured' }),
+      body: JSON.stringify({ error: err.message }),
     };
   }
-
-  const sql = neon(DATABASE_URL);
 
   // Auth check
   const userId = await getUserFromToken(event.headers.authorization || '', sql);
@@ -82,7 +123,6 @@ exports.handler = async (event) => {
     switch (event.httpMethod) {
       case 'GET': {
         if (snippetId) {
-          // Get single snippet
           const [snippet] = await sql`
             SELECT * FROM snippets WHERE id = ${snippetId} AND user_id = ${userId}
           `;
@@ -95,7 +135,6 @@ exports.handler = async (event) => {
           }
           return { statusCode: 200, headers, body: JSON.stringify(snippet) };
         } else {
-          // List all snippets for user
           const snippets = await sql`
             SELECT * FROM snippets WHERE user_id = ${userId} ORDER BY updated_at DESC
           `;
@@ -161,9 +200,7 @@ exports.handler = async (event) => {
             body: JSON.stringify({ error: 'Snippet ID required' }),
           };
         }
-        await sql`
-          DELETE FROM snippets WHERE id = ${snippetId} AND user_id = ${userId}
-        `;
+        await sql`DELETE FROM snippets WHERE id = ${snippetId} AND user_id = ${userId}`;
         return { statusCode: 204, headers, body: '' };
       }
 
