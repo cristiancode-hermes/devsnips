@@ -63,3 +63,8 @@ setup-data-api.py
 
 # Local Netlify folder
 .netlify
+
+# E2E test artifacts
+test-results/
+playwright-report/
+playwright/.cache/
